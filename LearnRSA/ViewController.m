@@ -7,8 +7,10 @@
 //
 
 #import "ViewController.h"
+
 #import <Security/Security.h>
 #import <CommonCrypto/CommonCrypto.h>
+#import <sys/xattr.h>
 
 @interface ViewController ()
 
@@ -39,7 +41,10 @@
 - (void)signAndVerify {
     
     SecKeyRef privateKeyRef = [self getPrivateKeyRefWithContentsOfFile:[NSData dataWithContentsOfFile:[[NSBundle mainBundle] pathForResource:@"private_key" ofType:@"p12"]] password:@""];
+    
+    
     NSData *sourceData = [NSData dataWithContentsOfFile:[[NSBundle mainBundle] pathForResource:@"ios" ofType:@"jsbundle"]];
+    
     NSString *md5Str = [self MD5WithNSData:sourceData];
     NSData *md5Data = [md5Str dataUsingEncoding:NSUTF8StringEncoding];
     
@@ -193,15 +198,11 @@ NSData* PKCSSignBytesSHA256withRSA(NSData* plainData, SecKeyRef privateKey)
     return publicKeyRef;
 }
 
-
 -(NSString *)MD5WithStr:(NSString *)str {
-    const char *cStr = [str UTF8String];//转换成utf-8
-    unsigned char result[16]; //开辟一个16字节（128位：md5加密出来就是128位/bit）的空间（一个字节=8字位=8个二进制数）
+    const char *cStr = [str UTF8String];
+    unsigned char result[16];
     CC_MD5( cStr, (CC_LONG)strlen(cStr), result);
-    /*
-     extern unsigned char *CC_MD5(const void *data, CC_LONG len, unsigned char *md)官方封装好的加密方法
-     把cStr字符串转换成了32位的16进制数列（这个过程不可逆转） 存储到了result这个空间中
-     */
+    
     return [NSString stringWithFormat:
             @"%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X",
             result[0], result[1], result[2], result[3],
@@ -209,19 +210,12 @@ NSData* PKCSSignBytesSHA256withRSA(NSData* plainData, SecKeyRef privateKey)
             result[8], result[9], result[10], result[11],
             result[12], result[13], result[14], result[15]
             ];
-    /*
-     x表示十六进制，%02X  意思是不足两位将用0补齐，如果多余两位则不影响
-     NSLog("%02X", 0x888);  //888
-     NSLog("%02X", 0x4); //04
-     */
 }
-
 
 -(NSString *)MD5WithNSData:(NSData *)data
 {
     unsigned char result[16];
-    CC_MD5([data bytes], (CC_LONG)[data length], result); // This is the md5 call
-    
+    CC_MD5([data bytes], (CC_LONG)[data length], result);
     return [NSString stringWithFormat:
             @"%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
             result[0], result[1], result[2], result[3],
@@ -230,4 +224,45 @@ NSData* PKCSSignBytesSHA256withRSA(NSData* plainData, SecKeyRef privateKey)
             result[12], result[13], result[14], result[15]
             ];
 }
+
+
+-(BOOL)setExtendValueWithPath:(NSString *)path key:(NSString *)key value:(NSData *)value {
+    ssize_t writelen = setxattr([path fileSystemRepresentation],
+                                [key UTF8String],
+                                [value bytes],
+                                [value length],
+                                0,
+                                0);
+    return writelen == 0;
+}
+
+
+
+
+// 长度不超过1024
+-(NSData *)getExtendValueWithPath:(NSString *)path key:(NSString *)key {
+    ssize_t readlen = 1024;
+    do {
+        char buffer[readlen];
+        bzero(buffer, sizeof(buffer));
+        size_t leng = sizeof(buffer);
+        readlen = getxattr([path fileSystemRepresentation],
+                           [key UTF8String],
+                           buffer,
+                           leng,
+                           0,
+                           0);
+        if (readlen < 0){
+            return nil;
+        }
+        else if (readlen > sizeof(buffer)) {
+            continue;
+        }else{
+            NSData *result = [NSData dataWithBytes:buffer length:readlen];
+            return result;
+        }
+    } while (YES);
+    return nil;
+}
+
 @end
